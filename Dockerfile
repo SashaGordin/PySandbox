@@ -21,6 +21,10 @@ RUN apt-get update && apt-get install -y \
     libnl-route-3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Create /app directory and set as working directory
+RUN mkdir -p /app
+WORKDIR /app
+
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -31,11 +35,12 @@ RUN git clone https://github.com/google/nsjail.git /opt/nsjail \
     && make \
     && cp nsjail /usr/local/bin/nsjail
 
-# Copy app code
+# Copy app code and config
 COPY app.py .
+COPY nsjail.cfg .
 
 # Expose port 8080
 EXPOSE 8080
 
 # Run the Flask app
-CMD ["python", "app.py"]
+CMD ["python", "-u", "app.py"]

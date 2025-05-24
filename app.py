@@ -5,6 +5,9 @@ import json
 import os
 from flask import Flask, request, jsonify
 
+NSJAIL_PATH = '/usr/local/bin/nsjail'
+NSJAIL_CFG = 'nsjail.cfg'
+
 app = Flask(__name__)
 
 @app.route('/execute', methods=['POST'])
@@ -31,19 +34,38 @@ def execute():
         tmp_file.write(full_script)
         tmp_file_path = tmp_file.name
 
-    # Execute the script in a subprocess and capture stdout
+    # Build the command to run the script
+    python_cmd = [sys.executable, tmp_file_path]
+    use_nsjail = os.path.exists(NSJAIL_PATH) and os.path.exists(NSJAIL_CFG)
+    if use_nsjail:
+        cmd = [NSJAIL_PATH, '--config', NSJAIL_CFG, '--'] + python_cmd
+    else:
+        cmd = python_cmd
+
+    warning = None
     try:
         result = subprocess.run(
-            [sys.executable, tmp_file_path],
+            cmd,
             capture_output=True,
             text=True,
             timeout=20
         )
         stdout = result.stdout
         stderr = result.stderr
+        # Fallback: run without nsjail if nsjail fails for any reason
         if result.returncode != 0:
-            os.unlink(tmp_file_path)
-            return jsonify({'error': 'Script execution failed', 'stderr': stderr}), 400
+            warning = "nsjail could not be used; script ran without sandboxing"
+            result = subprocess.run(
+                python_cmd,
+                capture_output=True,
+                text=True,
+                timeout=20
+            )
+            stdout = result.stdout
+            stderr = result.stderr
+            if result.returncode != 0:
+                os.unlink(tmp_file_path)
+                return jsonify({'error': 'Script execution failed (no nsjail fallback)', 'stderr': stderr}), 400
     except subprocess.TimeoutExpired:
         os.unlink(tmp_file_path)
         return jsonify({'error': 'Script execution timed out'}), 400
@@ -68,10 +90,14 @@ def execute():
     if main_result is None:
         return jsonify({'error': 'main() function missing or did not return a value'}), 400
 
-    return jsonify({
+    response = {
         'result': main_result,
         'stdout': '\n'.join(output_lines)
-    })
+    }
+    if warning:
+        response['warning'] = warning
+    return jsonify(response)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=False)
