@@ -13,6 +13,8 @@ def execute():
     script = data.get('script')
     if not script:
         return jsonify({'error': 'No script provided'}), 400
+    if 'def main' not in script:
+        return jsonify({'error': 'Script must contain a main() function.'}), 400
 
     # Append code to call main() and print its return value with a unique marker
     appended_code = ("\nimport json\n"
@@ -35,7 +37,7 @@ def execute():
             [sys.executable, tmp_file_path],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=20
         )
         stdout = result.stdout
         stderr = result.stderr
