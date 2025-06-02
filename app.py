@@ -43,6 +43,7 @@ def execute():
         cmd = python_cmd
 
     warning = None
+    nsjail_error = None
     try:
         result = subprocess.run(
             cmd,
@@ -53,7 +54,8 @@ def execute():
         stdout = result.stdout
         stderr = result.stderr
         # Fallback: run without nsjail if nsjail fails for any reason
-        if result.returncode != 0:
+        if use_nsjail and result.returncode != 0:
+            nsjail_error = stderr
             warning = "nsjail could not be used; script ran without sandboxing"
             result = subprocess.run(
                 python_cmd,
@@ -65,7 +67,7 @@ def execute():
             stderr = result.stderr
             if result.returncode != 0:
                 os.unlink(tmp_file_path)
-                return jsonify({'error': 'Script execution failed (no nsjail fallback)', 'stderr': stderr}), 400
+                return jsonify({'error': 'Script execution failed (no nsjail fallback)', 'stderr': stderr, 'nsjail_error': nsjail_error}), 400
     except subprocess.TimeoutExpired:
         os.unlink(tmp_file_path)
         return jsonify({'error': 'Script execution timed out'}), 400
@@ -96,6 +98,8 @@ def execute():
     }
     if warning:
         response['warning'] = warning
+    if nsjail_error:
+        response['nsjail_error'] = nsjail_error
     return jsonify(response)
 
 if __name__ == '__main__':

@@ -1,46 +1,63 @@
-# Use a lightweight Python base image
-FROM python:3.12-slim
+# Use a multi-stage build to include nsjail in the final image
+# Stage 1: Build nsjail
+FROM debian:bookworm-slim AS nsjail-builder
 
-# Install system dependencies for pandas, numpy, and nsjail build tools
 RUN apt-get update && apt-get install -y \
-    build-essential \
     git \
-    flex \
-    bison \
-    wget \
-    ca-certificates \
-    libprotobuf-dev \
+    build-essential \
     protobuf-compiler \
-    pkg-config \
-    libtool \
-    automake \
-    g++ \
-    libcap-dev \
-    libseccomp-dev \
+    libprotobuf-dev \
+    libprotobuf32 \
     libnl-3-dev \
+    libnl-genl-3-dev \
     libnl-route-3-dev \
+    libcap-dev \
+    autoconf \
+    bison \
+    flex \
+    libtool \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Create /app directory and set as working directory
-RUN mkdir -p /app
+RUN git clone https://github.com/google/nsjail.git /nsjail \
+    && cd /nsjail \
+    && make \
+    && mv nsjail /usr/local/bin/nsjail
+
+# Stage 2: Final image with nsjail and Cloud Run v2 execution environment
+FROM python:3.11-slim
+
+# Create a non-root user
+RUN useradd -m sandboxuser
+
+# Copy nsjail from the builder stage
+COPY --from=nsjail-builder /usr/local/bin/nsjail /usr/local/bin/nsjail
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    libprotobuf-dev \
+    libprotobuf32 \
+    libnl-3-dev \
+    libnl-genl-3-dev \
+    libnl-route-3-dev \
+    libcap-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
 WORKDIR /app
 
-# Install Python dependencies
+# Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Build and install nsjail
-RUN git clone https://github.com/google/nsjail.git /opt/nsjail \
-    && cd /opt/nsjail \
-    && make \
-    && cp nsjail /usr/local/bin/nsjail
+# Copy application code
+COPY . .
 
-# Copy app code and config
-COPY app.py .
-COPY nsjail.cfg .
+# Change to non-root user
+USER sandboxuser
 
-# Expose port 8080
+# Expose port
 EXPOSE 8080
 
-# Run the Flask app
-CMD ["python", "-u", "app.py"]
+# Run the application
+CMD ["python", "app.py"]
